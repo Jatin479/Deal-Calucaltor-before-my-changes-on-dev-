@@ -1,0 +1,122 @@
+<template>
+    <lightning-quick-action-panel header="Create New Deal Calculator">
+        <div class="slds-p-around_medium">
+            <!-- Opportunity Name -->
+            <lightning-input label="Opportunity" value={oppName} readonly></lightning-input>
+
+            <!-- Standard SLDS Lookup -->
+            <div class="slds-form-element slds-m-top_medium">
+                <label class="slds-form-element__label" for="combobox-id-1">
+                    <abbr class="slds-required" title="required">*</abbr>Dealer Name
+                </label>
+                <div class="slds-form-element__control">
+                    <div class={containerClass}>
+                        <div class={comboboxClass} aria-expanded={isDropdownOpen} aria-haspopup="listbox"
+                            role="combobox">
+
+                            <!-- Search / Selected state -->
+                            <div class="slds-combobox__form-element slds-input-has-icon slds-input-has-icon_left-right"
+                                role="none">
+
+                                <!-- Left icon: search when searching, entity icon when selected -->
+                                <template if:false={selectedDealerId}>
+                                    <lightning-icon icon-name="utility:search" size="x-small"
+                                        class="slds-input__icon slds-input__icon_left"></lightning-icon>
+                                </template>
+                                <template if:true={selectedDealerId}>
+                                    <lightning-icon icon-name="standard:account" size="x-small" variant="circle"
+                                        class="slds-input__icon slds-input__icon_left"></lightning-icon>
+                                </template>
+
+                                <!-- Search input (hidden once a dealer is selected) -->
+                                <template if:false={selectedDealerId}>
+                                    <input type="text" id="combobox-id-1" class="slds-input slds-combobox__input"
+                                        placeholder="Search Dealer (min 3 chars)..." value={searchKey}
+                                        oninput={handleSearchChange} onfocus={handleFocus} onblur={handleBlur}
+                                        autocomplete="off" />
+                                </template>
+
+                                <!-- Selected value (readonly, replaces the input) -->
+                                <template if:true={selectedDealerId}>
+                                    <input type="text"
+                                        class="slds-input slds-combobox__input slds-combobox__input-value" readonly
+                                        value={selectedDealerName} />
+                                    <button class="slds-button slds-button_icon slds-input__icon slds-input__icon_right"
+                                        title="Remove selected dealer" onclick={handleRemoveDealer}>
+                                        <lightning-icon icon-name="utility:close" size="x-small"
+                                            variant="border"></lightning-icon>
+                                        <span class="slds-assistive-text">Remove selected dealer</span>
+                                    </button>
+                                </template>
+                            </div>
+
+                            <!-- Search Results Dropdown -->
+                            <template if:false={selectedDealerId}>
+                                <div id="listbox-id-1" class="slds-dropdown slds-dropdown_length-5 slds-dropdown_fluid"
+                                    role="listbox">
+                                    <ul class="slds-listbox slds-listbox_vertical" role="presentation">
+                                        <template for:each={dealerOptions} for:item="option">
+                                            <li key={option.value} role="presentation" class="slds-listbox__item"
+                                                onmousedown={handleSelect} data-id={option.value}
+                                                data-name={option.label}>
+                                                <div class="slds-media slds-listbox__option slds-listbox__option_entity slds-listbox__option_has-meta"
+                                                    role="option">
+                                                    <span class="slds-media__figure slds-listbox__option-icon">
+                                                        <lightning-icon icon-name="standard:account" size="small"
+                                                            variant="circle"></lightning-icon>
+                                                    </span>
+                                                    <span class="slds-media__body">
+                                                        <span
+                                                            class="slds-listbox__option-text slds-listbox__option-text_entity"
+                                                            title={option.label}>
+                                                            {option.label}
+                                                        </span>
+                                                    </span>
+                                                </div>
+                                            </li>
+                                        </template>
+                                        <template if:true={noResults}>
+                                            <li class="slds-listbox__item">
+                                                <div class="slds-p-around_x-small slds-text-color_weak">No dealers
+                                                    found. Please add dealers in Involved Parties</div>
+                                            </li>
+                                        </template>
+                                    </ul>
+                                </div>
+                            </template>
+
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div slot="footer">
+            <lightning-button label="Cancel" onclick={closeAction}></lightning-button>
+            <lightning-button label="Create" variant="brand" onclick={handleSubmit} class="slds-m-left_x-small"
+                disabled={isSubmitDisabled}></lightning-button>
+        </div>
+
+    </lightning-quick-action-panel>
+
+    <!-- Duplicate Warning Modal -->
+    <template if:true={showDuplicateModal}>
+        <div class="slds-backdrop slds-backdrop_open custom-backdrop"></div>
+        <div role="dialog" aria-modal="true" class="slds-modal slds-fade-in-open custom-modal">
+            <div class="slds-modal__container">
+                <div class="slds-modal__header">
+                    <h2 class="slds-text-heading_medium">Duplicate Deal Calculator</h2>
+                </div>
+                <div class="slds-modal__content slds-p-around_medium">
+                    <p class="slds-text-align_center">A Deal Calculator already exists for this Opportunity and Dealer.
+                    </p>
+                </div>
+                <div class="slds-modal__footer">
+                    <lightning-button label="Cancel" onclick={handleCancelDuplicate}></lightning-button>
+                    <lightning-button label="Open Existing Deal Calculator" variant="brand" onclick={handleOpenExisting}
+                        class="slds-m-left_x-small"></lightning-button>
+                </div>
+            </div>
+        </div>
+    </template>
+</template>
