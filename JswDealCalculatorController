@@ -1,0 +1,76 @@
+/** 
+ * Description: Controller for handling deal calculator record creation from opportunity record page new button 
+ * Author : Krishnesh Chaurasia 
+ * */
+public with sharing class JswDealCalculatorController {
+    
+    @AuraEnabled(cacheable=true)
+    public static List<Map<String, String>> searchActiveDealers(Id opportunityId, String searchTerm) {
+        List<Map<String, String>> options = new List<Map<String, String>>();
+        
+        // Ensure we only search if we have enough characters (safety check)
+        if (String.isBlank(searchTerm) || searchTerm.length() < 3) {
+            return options;
+        }
+
+        String key = '%' + searchTerm + '%';
+        
+        for (InvolvedParty__c ip : [
+            SELECT InvolvedParty__c, InvolvedParty__r.Name 
+            FROM InvolvedParty__c 
+            WHERE Opportunity__c = :opportunityId 
+            AND InvolvedPartyType__c = 'Dealer' 
+            AND IsActive__c = true 
+            AND InvolvedParty__r.Name LIKE :key
+            LIMIT 10
+        ]) {
+            options.add(new Map<String, String>{
+                'label' => ip.InvolvedParty__r.Name,
+                'value' => ip.InvolvedParty__c
+            });
+        }
+        return options;
+    }
+
+    @AuraEnabled(cacheable=true)
+    public static Id checkExistingDealCalculator(Id oppId, Id dealerId) {
+        if (oppId == null || dealerId == null) {
+            return null;
+        }
+
+        Id recordTypeId = Schema.SObjectType.Opportunity.getRecordTypeInfosByDeveloperName()
+            .get('SFA_PJT_ProjectSiteDealCalculator')?.getRecordTypeId();
+
+        if (recordTypeId == null) {
+            return null;
+        }
+
+        List<Opportunity> existing = [
+            SELECT Id FROM Opportunity
+            WHERE ParentProject__c = :oppId
+            AND Dealer__c = :dealerId
+            AND RecordTypeId = :recordTypeId
+            LIMIT 1
+        ];
+
+        return existing.isEmpty() ? null : existing[0].Id;
+    }
+
+    @AuraEnabled
+    public static Id createDealCalculator(Id oppId, Id dealerId) {
+        Schema.RecordTypeInfo rtInfo = Schema.SObjectType.Opportunity.getRecordTypeInfosByDeveloperName().get('SFA_PJT_ProjectSiteDealCalculator');
+        Id recordTypeId = (rtInfo != null) ? rtInfo.getRecordTypeId() : null;
+
+        Opportunity opp = new Opportunity(
+            ParentProject__c  = oppId,
+            Dealer__c = dealerId,
+            Status__c = 'New',
+            recordTypeId = recordTypeId,
+            Name = 'New Deal Calculator',
+            StageName = 'New',
+            CloseDate = System.today()
+        );
+        insert opp;
+        return opp.Id;
+    }
+}
