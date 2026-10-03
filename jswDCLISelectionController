@@ -1,0 +1,151 @@
+public without sharing class jswDCLISelectionController {
+
+    public class OLIWrapper {
+        @AuraEnabled public Id productId { get; set; }
+        @AuraEnabled public String productName { get; set; }
+        @AuraEnabled public Decimal totalVolume { get; set; }
+        @AuraEnabled public Decimal consumedVolume { get; set; }
+        @AuraEnabled public Decimal dpl { get; set; }
+    }
+
+    public class LineItemWrapper {
+        @AuraEnabled public String id { get; set; }
+        @AuraEnabled public Id productId { get; set; }
+        @AuraEnabled public String productName { get; set; }
+        @AuraEnabled public Decimal volume { get; set; }
+        @AuraEnabled public Decimal discount { get; set; }
+        @AuraEnabled public Decimal dpl { get; set; }
+        @AuraEnabled public Decimal cogs { get; set; }
+        @AuraEnabled public String status { get; set; }
+    }
+
+    @AuraEnabled
+    public static List<OLIWrapper> getOpportunityProducts(Id opportunityId) {
+        if (opportunityId == null) {
+            throw new AuraHandledException('Opportunity Id is required.');
+        }
+
+        List<OLIWrapper> oliList = new List<OLIWrapper>();
+
+        try {
+            Opportunity opp = [select ParentProject__c from Opportunity where Id = :opportunityId];
+
+            List<OpportunityLineItem> lineItems = [
+                SELECT Id, Product2Id, Product2.Name, Quantity, ListPrice
+                FROM OpportunityLineItem
+                WHERE OpportunityId = :opp.ParentProject__c
+            ];
+
+            // consumedVolume = 0 since each OLI is self-contained
+            // (Opportunity IS the Deal Calculator, so no cross-Deal-Calculator aggregation needed)
+            for (OpportunityLineItem item : lineItems) {
+                OLIWrapper wrap = new OLIWrapper();
+                wrap.productId = item.Product2Id;
+                wrap.productName = item.Product2.Name;
+                wrap.totalVolume = item.Quantity != null ? item.Quantity : 0;
+                wrap.consumedVolume = 0;
+                wrap.dpl = item.ListPrice != null ? item.ListPrice : 0;
+                oliList.add(wrap);
+            }
+        } catch (Exception ex) {
+            throw new AuraHandledException('Error fetching products: ' + ex.getMessage());
+        }
+
+        return oliList;
+    }
+
+    @AuraEnabled
+    public static List<LineItemWrapper> getExistingLineItems(Id opportunityId) {
+        if (opportunityId == null) {
+            throw new AuraHandledException('Opportunity Id is required.');
+        }
+
+        List<LineItemWrapper> existingItems = new List<LineItemWrapper>();
+
+        try {
+            List<OpportunityLineItem> records = [
+                SELECT Id, Product2Id, Product2.Name, Quantity, Discount, ListPrice, UnitPrice, Status__c
+                FROM OpportunityLineItem
+                WHERE OpportunityId = :opportunityId
+                ORDER BY CreatedDate ASC
+            ];
+
+            for (OpportunityLineItem rec : records) {
+                LineItemWrapper wrap = new LineItemWrapper();
+                wrap.id = rec.Id;
+                wrap.productId = rec.Product2Id;
+                wrap.productName = rec.Product2.Name;
+                wrap.volume = rec.Quantity;
+                wrap.discount = rec.Discount;
+                wrap.dpl = rec.ListPrice;
+                wrap.cogs = rec.UnitPrice;
+                wrap.status = rec.Status__c;
+                existingItems.add(wrap);
+            }
+        } catch (Exception ex) {
+            throw new AuraHandledException('Error fetching existing items: ' + ex.getMessage());
+        }
+
+        return existingItems;
+    }
+
+    @AuraEnabled
+    public static void saveDealLineItems(Id opportunityId, List<LineItemWrapper> itemsToSave, List<Id> itemsToDelete) {
+        if (opportunityId == null) {
+            throw new AuraHandledException('Opportunity Id is required.');
+        }
+
+        try {
+            // Check lock status on Opportunity
+            Opportunity opp = [SELECT Id, IsLocked__c FROM Opportunity WHERE Id = :opportunityId LIMIT 1];
+            if (opp.IsLocked__c) {
+                throw new AuraHandledException('Deal is locked after contract creation.');
+            }
+
+            // Delete items marked for deletion
+            if (itemsToDelete != null && !itemsToDelete.isEmpty()) {
+                List<OpportunityLineItem> recordsToDelete = [
+                    SELECT Id FROM OpportunityLineItem WHERE Id IN :itemsToDelete
+                ];
+                if (!recordsToDelete.isEmpty()) {
+                    delete recordsToDelete;
+                }
+            }
+
+            // Insert or update items
+            if (itemsToSave != null && !itemsToSave.isEmpty()) {
+                List<OpportunityLineItem> recordsToUpsert = new List<OpportunityLineItem>();
+
+                for (LineItemWrapper wrapper : itemsToSave) {
+                    if (wrapper.productId == null) continue;
+
+                    OpportunityLineItem rec = new OpportunityLineItem();
+
+                    if (String.isNotBlank(wrapper.id)) {
+                        rec.Id = wrapper.id;
+                    } else {
+                        rec.OpportunityId = opportunityId;
+                        rec.Status__c = 'Draft';
+                        rec.Product2Id = wrapper.productId;
+                    }
+
+
+                    rec.Quantity = wrapper.volume;
+                    rec.Discount = wrapper.discount;
+                    //rec.ListPrice = wrapper.dpl;
+                    rec.UnitPrice = wrapper.cogs;
+
+                    recordsToUpsert.add(rec);
+                }
+
+                if (!recordsToUpsert.isEmpty()) {
+                    upsert recordsToUpsert;
+                }
+            }
+        } catch (AuraHandledException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new AuraHandledException(ex.getMessage());
+        }
+    }
+}
