@@ -1,0 +1,30 @@
+* {}
+
+.opp-name {}
+
+.btn-styl {
+    background-color: black;
+}
+
+/* Ensure backdrop covers the entire viewport even if bounded by a parent container */
+.custom-backdrop {
+    position: fixed !important;
+    top: -100vh !important;
+    left: -100vw !important;
+    right: -100vw !important;
+    bottom: -100vh !important;
+    background-color: rgba(0, 0, 0, 0.6) !important;
+    z-index: 9000 !important;
+}
+
+/* Ensure modal is positioned in the center of the viewport or its containing block */
+.custom-modal {
+    position: fixed !important;
+    top: 50% !important;
+    left: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    z-index: 10000 !important;
+    width: 90vw !important;
+    max-width: 40rem !important;
+    /* Mobile friendly */
+}
