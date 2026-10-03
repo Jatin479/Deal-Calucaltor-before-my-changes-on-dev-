@@ -1,0 +1,160 @@
+import { LightningElement, api, wire, track } from 'lwc';
+import { getRecord, getFieldValue } from 'lightning/uiRecordApi';
+import { ShowToastEvent } from 'lightning/platformShowToastEvent';
+import { NavigationMixin } from 'lightning/navigation';
+import { CloseActionScreenEvent } from 'lightning/actions';
+
+import OPP_NAME_FIELD from '@salesforce/schema/Opportunity.Name';
+import searchActiveDealers from '@salesforce/apex/JswDealCalculatorController.searchActiveDealers';
+import createDealCalculator from '@salesforce/apex/JswDealCalculatorController.createDealCalculator';
+import checkExistingDealCalculator from '@salesforce/apex/JswDealCalculatorController.checkExistingDealCalculator';
+
+export default class JswDealCalculator extends NavigationMixin(LightningElement) {
+    @api recordId;
+    @track dealerOptions = [];
+    searchKey = '';
+    selectedDealerId = '';
+    selectedDealerName = '';
+    oppName;
+    isDropdownOpen = false;
+    isChecking = false;
+    showDuplicateModal = false;
+    existingDcId = null;
+
+    @wire(getRecord, { recordId: '$recordId', fields: [OPP_NAME_FIELD] })
+    wiredOpp({ data }) {
+        if (data) this.oppName = getFieldValue(data, OPP_NAME_FIELD);
+    }
+
+    handleSearchChange(event) {
+        this.searchKey = event.target.value;
+        if (this.searchKey.length >= 3) {
+            this.fetchDealers();
+        } else {
+            this.dealerOptions = [];
+            this.isDropdownOpen = false;
+        }
+    }
+
+    async fetchDealers() {
+        try {
+            const results = await searchActiveDealers({
+                opportunityId: this.recordId,
+                searchTerm: this.searchKey
+            });
+            this.dealerOptions = results;
+            this.isDropdownOpen = true;
+        } catch (error) {
+            console.error(error);
+        }
+    }
+
+    handleSelect(event) {
+        this.selectedDealerId = event.currentTarget.dataset.id;
+        this.selectedDealerName = event.currentTarget.dataset.name;
+        this.searchKey = ''; // Clear search text
+        this.dealerOptions = [];
+        this.isDropdownOpen = false;
+    }
+
+    handleRemoveDealer() {
+        this.selectedDealerId = '';
+        this.selectedDealerName = '';
+        this.searchKey = '';
+    }
+
+    handleFocus() {
+        if (this.dealerOptions.length > 0) this.isDropdownOpen = true;
+    }
+
+    handleBlur() {
+        setTimeout(() => { this.isDropdownOpen = false; }, 200);
+    }
+
+    // Handles the outer container styling for the selected state
+    get containerClass() {
+        return `slds-combobox_container ${this.selectedDealerName ? 'slds-has-selection' : ''}`;
+    }
+
+    // Handles the inner dropdown trigger styling
+    get comboboxClass() {
+        return `slds-combobox slds-dropdown-trigger slds-dropdown-trigger_click ${this.isDropdownOpen ? 'slds-is-open' : ''}`;
+    }
+
+    get noResults() {
+        return this.searchKey.length >= 3 && this.dealerOptions.length === 0;
+    }
+
+    get isSubmitDisabled() {
+        return !this.selectedDealerId;
+    }
+
+    closeAction() {
+        this.dispatchEvent(new CloseActionScreenEvent());
+    }
+
+    async handleSubmit() {
+        this.isChecking = true;
+        try {
+            // Check for existing Deal Calculator first
+            const existingId = await checkExistingDealCalculator({
+                oppId: this.recordId,
+                dealerId: this.selectedDealerId
+            });
+
+            if (existingId) {
+                this.existingDcId = existingId;
+                this.showDuplicateModal = true;
+                this.isChecking = false;
+                return;
+            }
+
+            // No duplicate found - proceed with creation
+            const newDcId = await createDealCalculator({
+                oppId: this.recordId,
+                dealerId: this.selectedDealerId
+            });
+
+            this.dispatchEvent(new ShowToastEvent({ title: 'Success', message: 'Deal Calculator created', variant: 'success' }));
+            this.closeAction();
+
+            this[NavigationMixin.Navigate]({
+                type: 'standard__recordPage',
+                attributes: { recordId: newDcId, actionName: 'view' }
+            });
+        } catch (error) {
+            this.dispatchEvent(new ShowToastEvent({ title: 'Error', message: error.body?.message || 'Unknown error', variant: 'error' }));
+        } finally {
+            this.isChecking = false;
+        }
+    }
+
+    handleOpenExisting() {
+        this.showDuplicateModal = false;
+        this[NavigationMixin.Navigate]({
+            type: 'standard__recordPage',
+            attributes: { recordId: this.existingDcId, actionName: 'view' }
+        });
+        this.closeAction();
+    }
+
+    handleCancelDuplicate() {
+        this.showDuplicateModal = false;
+        this.existingDcId = null;
+    }
+
+    get containerClass() {
+        return `slds-combobox_container ${this.selectedDealerId ? 'slds-has-selection' : ''}`;
+    }
+
+    get comboboxClass() {
+        return `slds-combobox slds-dropdown-trigger slds-dropdown-trigger_click ${this.isDropdownOpen ? 'slds-is-open' : ''}`;
+    }
+
+    handleRemoveDealer(event) {
+        event.stopPropagation();
+        this.selectedDealerId = '';
+        this.selectedDealerName = '';
+        this.searchKey = '';
+    }
+}
