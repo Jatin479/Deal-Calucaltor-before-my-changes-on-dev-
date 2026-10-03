@@ -1,0 +1,150 @@
+<template>
+    <lightning-card title="Add Deal Products" icon-name="standard:product_item">
+
+        <!-- Top Section: Data Entry Form -->
+        <div class="slds-p-around_medium slds-border_bottom slds-theme_default">
+            <lightning-layout multiple-rows="true">
+
+                <!-- Product Selection -->
+                <lightning-layout-item size="12" medium-device-size="4" class="slds-p-right_small slds-m-bottom_small">
+                    <lightning-combobox
+                        label="Opportunity Product"
+                        value={selectedProductId}
+                        options={productOptions}
+                        onchange={handleProductChange}
+                        placeholder="Select Product"
+                        required>
+                    </lightning-combobox>
+                </lightning-layout-item>
+
+                <!-- Volume Input -->
+                <lightning-layout-item size="12" medium-device-size="2" class="slds-p-right_small slds-m-bottom_small">
+                    <lightning-input
+                        type="number"
+                        label="Quantity"
+                        
+                        value={entryVolume}
+                        onchange={handleVolumeChange}
+                        min="0.01"
+                        max={currentMaxVolume}
+                        step="0.01"
+                        disabled={isProductNotSelected}
+                        required>
+                    </lightning-input>
+                    <template if:true={selectedProductId}>
+                        <div class="slds-form-element__help slds-text-color_success slds-m-top_xxx-small">
+                            Max: {currentMaxVolume}
+                        </div>
+                    </template>
+                </lightning-layout-item>
+
+                <!-- Discount Input -->
+                <lightning-layout-item size="12" medium-device-size="2" class="slds-p-right_small slds-m-bottom_small">
+                    <lightning-input
+                        type="number"
+                        label="Discount %"
+                        value={entryDiscount}
+                        onchange={handleDiscountChange}
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        disabled={isProductNotSelected}
+                        required>
+                    </lightning-input>
+                </lightning-layout-item>
+
+                <!-- DPL (Read-Only) -->
+                <lightning-layout-item size="12" medium-device-size="2" class="slds-p-right_small slds-m-bottom_small">
+                    <lightning-input
+                        type="number"
+                        label="DPL"
+                        value={entryDpl}
+                        formatter="currency"
+                        disabled>
+                    </lightning-input>
+                </lightning-layout-item>
+
+                <!-- Calculated COGS (Read-Only) -->
+                <lightning-layout-item size="12" medium-device-size="2" class="slds-m-bottom_small">
+                    <lightning-input
+                        type="number"
+                        label="Calculated COGS"
+                        value={entryCogs}
+                        formatter="currency"
+                        disabled>
+                    </lightning-input>
+                </lightning-layout-item>
+
+                <!-- Add Button & Total Amount -->
+                <lightning-layout-item size="12" class="slds-m-top_small slds-text-align_right">
+                    <div class="slds-text-title_bold slds-float_left slds-p-top_x-small">
+                        Total amount: <lightning-formatted-number value={entryTotal} style="currency"></lightning-formatted-number>
+                    </div>
+                    <lightning-button label={addButtonLabel} variant="brand" onclick={handleAddProduct} disabled={isProductNotSelected}></lightning-button>
+                </lightning-layout-item>
+            </lightning-layout>
+        </div>
+
+        <!-- Bottom Section: Draft / Existing Items -->
+        <div class="slds-p-around_medium slds-theme_shade">
+            <div class="slds-text-heading_small slds-m-bottom_medium slds-text-title_bold">
+                Line Items ({draftItems.length})
+            </div>
+
+            <template if:true={draftItems.length}>
+                <lightning-layout multiple-rows="true">
+                    <template for:each={draftItems} for:item="item" for:index="index">
+                        <lightning-layout-item size="12" key={item.uuid} class="slds-m-bottom_small">
+                            <div class="slds-box slds-theme_default">
+                                <lightning-layout vertical-align="end" multiple-rows="true">
+
+                                    <lightning-layout-item size="12" medium-device-size="3" class="slds-p-right_small">
+                                        <div class="slds-text-title_bold slds-m-bottom_xx-small">{item.productName}</div>
+                                        <div class="slds-text-body_small slds-text-color_weak">DPL: <lightning-formatted-number value={item.dpl} style="currency"></lightning-formatted-number></div>
+                                    </lightning-layout-item>
+
+                                    <lightning-layout-item size="12" medium-device-size="3" class="slds-p-right_small">
+                                        <lightning-input type="number" label="Volume" value={item.volume} readonly></lightning-input>
+                                    </lightning-layout-item>
+
+                                    <lightning-layout-item size="12" medium-device-size="2" class="slds-p-right_small">
+                                        <lightning-input type="number" label="Discount %" value={item.discount} readonly></lightning-input>
+                                    </lightning-layout-item>
+
+                                    <lightning-layout-item size="12" medium-device-size="2" class="slds-p-right_small slds-p-bottom_x-small">
+                                        <div class="slds-text-title">COGS: <lightning-formatted-number value={item.cogs} style="currency"></lightning-formatted-number></div>
+                                    </lightning-layout-item>
+
+                                    <lightning-layout-item size="12" medium-device-size="2" class="slds-text-align_right slds-p-bottom_x-small">
+                                        <template if:true={item.isEditable}>
+                                            <lightning-button-icon icon-name="utility:edit" variant="border-filled" alternative-text="Edit" data-index={index} onclick={handleEditDraft}></lightning-button-icon>
+                                            <lightning-button-icon icon-name="utility:delete" variant="border-filled" alternative-text="Delete" data-index={index} onclick={handleDeleteDraft} class="slds-m-left_x-small"></lightning-button-icon>
+                                        </template>
+                                        <template if:true={item.isApproved}>
+                                            <lightning-badge label="Approved" class="slds-theme_success slds-m-top_xxx-small"></lightning-badge>
+                                        </template>
+                                    </lightning-layout-item>
+                                </lightning-layout>
+                            </div>
+                        </lightning-layout-item>
+                    </template>
+                </lightning-layout>
+            </template>
+
+            <template if:false={draftItems.length}>
+                <div class="slds-text-align_center slds-text-color_weak slds-p-around_medium">
+                    No products added yet. Select products from the Opportunity above.
+                </div>
+            </template>
+        </div>
+
+        <div slot="footer">
+            <lightning-button label="Cancel" onclick={handleCancel} class="slds-m-right_small"></lightning-button>
+            <lightning-button label="Save Deal Records" variant="success" onclick={handleSaveAll} disabled={isSaveDisabled}></lightning-button>
+        </div>
+
+        <template if:true={isLoading}>
+            <lightning-spinner alternative-text="Loading" size="medium"></lightning-spinner>
+        </template>
+    </lightning-card>
+</template>
