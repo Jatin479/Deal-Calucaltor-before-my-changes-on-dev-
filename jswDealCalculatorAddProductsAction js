@@ -1,0 +1,253 @@
+import { LightningElement, api, track } from 'lwc';
+import { ShowToastEvent } from 'lightning/platformShowToastEvent';
+import { CloseActionScreenEvent } from 'lightning/actions';
+import { RefreshEvent } from 'lightning/refresh';
+import { notifyRecordUpdateAvailable } from 'lightning/uiRecordApi';
+
+import getOpportunityProducts from '@salesforce/apex/jswDCLISelectionController.getOpportunityProducts';
+import getExistingLineItems from '@salesforce/apex/jswDCLISelectionController.getExistingLineItems';
+import saveDealLineItems from '@salesforce/apex/jswDCLISelectionController.saveDealLineItems';
+
+export default class jswDealCalculatorAddProductsAction extends LightningElement {
+
+    _recordId;
+    @api
+    set recordId(value) {
+        this._recordId = value;
+        if (value) {
+            this.initializeData();
+        }
+    }
+    get recordId() {
+        return this._recordId;
+    }
+
+    isLoading = false;
+    availableProducts = [];
+
+    // Top Section State
+    @track selectedProductId = '';
+    @track currentProductName = '';
+    @track currentMaxVolume = 0;
+    @track entryVolume = null;
+    @track entryDiscount = 0;
+    @track entryDpl = 0;
+    @track currentLineItemId = null;
+
+    // Draft/Existing Items State
+    @track draftItems = [];
+    itemsToDelete = [];
+
+    async initializeData() {
+        if (this.isLoading) return;
+        this.isLoading = true;
+        try {
+            this.availableProducts = await getOpportunityProducts({ opportunityId: this.recordId });
+            const existingData = await getExistingLineItems({ opportunityId: this.recordId });
+
+            this.draftItems = existingData.map(item => {
+                const oli = this.availableProducts.find(p => p.productId === item.productId);
+
+                let maxAllowed = item.volume;
+                if (oli) {
+                    maxAllowed = (oli.totalVolume - oli.consumedVolume) + item.volume;
+                }
+
+                return {
+                    uuid: item.id,
+                    id: item.id,
+                    productId: item.productId,
+                    productName: item.productName,
+                    volume: item.volume,
+                    discount: item.discount,
+                    dpl: item.dpl,
+                    cogs: item.cogs,
+                    status: item.status,
+                    isApproved: item.status === 'Approved',
+                    isEditable: item.status !== 'Approved',
+                    maxVolume: maxAllowed
+                };
+            });
+        } catch (error) {
+            const errorMsg = error.body && error.body.message ? error.body.message : error.message;
+            this.showToast('Load Error', errorMsg, 'error');
+        } finally {
+            this.isLoading = false;
+        }
+    }
+
+    // --- Getters ---
+    get productOptions() {
+        const selectedIds = this.draftItems.map(item => item.productId);
+        return this.availableProducts
+            .filter(prod => !selectedIds.includes(prod.productId) || prod.productId === this.selectedProductId)
+            .map(prod => ({
+                label: prod.productName,
+                value: prod.productId
+            }));
+    }
+
+    get isProductNotSelected() {
+        return !this.selectedProductId;
+    }
+
+    get isSaveDisabled() {
+        return this.draftItems.length === 0 && this.itemsToDelete.length === 0;
+    }
+
+    get entryCogs() {
+        if (!this.entryDpl) return 0;
+        const discountVal = this.entryDiscount ? parseFloat(this.entryDiscount) : 0;
+        const cogs = this.entryDpl * (1 - (discountVal / 100));
+        return parseFloat(cogs.toFixed(2));
+    }
+
+    get entryTotal() {
+        const vol = this.entryVolume ? parseFloat(this.entryVolume) : 0;
+        return parseFloat((vol * this.entryCogs).toFixed(2));
+    }
+
+    get addButtonLabel() {
+        return this.currentLineItemId ? 'Update Draft' : 'Add to Draft';
+    }
+
+    // --- Event Handlers (Top Section) ---
+    handleProductChange(event) {
+        this.selectedProductId = event.detail.value;
+        const selectedOLI = this.availableProducts.find(p => p.productId === this.selectedProductId);
+
+        if (selectedOLI) {
+            if (this.currentProductName !== selectedOLI.productName) {
+                this.currentLineItemId = null;
+            }
+            this.currentProductName = selectedOLI.productName;
+            this.entryDpl = selectedOLI.dpl;
+            this.entryVolume = null;
+            this.entryDiscount = 0;
+
+            this.currentMaxVolume = selectedOLI.totalVolume - selectedOLI.consumedVolume;
+        }
+    }
+
+    handleVolumeChange(event) {
+        this.entryVolume = event.target.value;
+    }
+
+    handleDiscountChange(event) {
+        this.entryDiscount = event.target.value;
+    }
+
+    // --- Drafting Logic ---
+    handleAddProduct() {
+        if (!this.entryVolume || parseFloat(this.entryVolume) <= 0) {
+            this.showToast('Validation Error', 'Volume must be greater than 0.', 'warning');
+            return;
+        }
+        if (parseFloat(this.entryVolume) > this.currentMaxVolume) {
+            this.showToast('Validation Error', `Volume cannot exceed the remaining limit of ${this.currentMaxVolume} Ltrs.`, 'warning');
+            return;
+        }
+
+        const newItem = {
+            uuid: this.currentLineItemId ? this.currentLineItemId : Date.now().toString(),
+            id: this.currentLineItemId,
+            productId: this.selectedProductId,
+            productName: this.currentProductName,
+            volume: parseFloat(this.entryVolume),
+            discount: parseFloat(this.entryDiscount) || 0,
+            dpl: this.entryDpl,
+            cogs: this.entryCogs,
+            status: 'Draft',
+            isApproved: false,
+            isEditable: true,
+            maxVolume: this.currentMaxVolume
+        };
+
+        this.draftItems = [...this.draftItems, newItem];
+        this.resetTopForm();
+    }
+
+    resetTopForm() {
+        this.selectedProductId = '';
+        this.currentProductName = '';
+        this.currentMaxVolume = 0;
+        this.entryVolume = null;
+        this.entryDiscount = 0;
+        this.entryDpl = 0;
+        this.currentLineItemId = null;
+    }
+
+    // --- Draft Table Interactions ---
+    handleEditDraft(event) {
+        const index = event.target.dataset.index;
+        const itemToEdit = this.draftItems[index];
+
+        this.selectedProductId = itemToEdit.productId;
+        this.currentProductName = itemToEdit.productName;
+        this.currentMaxVolume = itemToEdit.maxVolume;
+        this.entryVolume = itemToEdit.volume;
+        this.entryDiscount = itemToEdit.discount;
+        this.entryDpl = itemToEdit.dpl;
+        this.currentLineItemId = itemToEdit.id;
+
+        this.draftItems.splice(index, 1);
+        this.draftItems = [...this.draftItems];
+    }
+
+    handleDeleteDraft(event) {
+        const index = event.target.dataset.index;
+        const itemToDelete = this.draftItems[index];
+
+        if (itemToDelete.id) {
+            this.itemsToDelete.push(itemToDelete.id);
+        }
+
+        this.draftItems.splice(index, 1);
+        this.draftItems = [...this.draftItems];
+    }
+
+    // --- Database Operations ---
+    async handleSaveAll() {
+        for (let item of this.draftItems) {
+            if (!item.volume || item.volume <= 0 || item.volume > item.maxVolume) {
+                this.showToast('Error', `Invalid volume for ${item.productName}. Please fix before saving.`, 'error');
+                return;
+            }
+        }
+
+        this.isLoading = true;
+        try {
+            await saveDealLineItems({
+                opportunityId: this.recordId,
+                itemsToSave: this.draftItems,
+                itemsToDelete: this.itemsToDelete
+            });
+
+            this.showToast('Success', 'Deal Calculator Line Items saved successfully!', 'success');
+
+            // 1. Invalidate Lightning Data Service cache for the parent record
+            await notifyRecordUpdateAvailable([{ recordId: this.recordId }]);
+
+            // 2. Dispatch LWC Refresh Event
+            this.dispatchEvent(new RefreshEvent());
+
+            // 3. Delay closing the modal slightly so the UI has time to process the refresh events
+            setTimeout(() => {
+                this.dispatchEvent(new CloseActionScreenEvent());
+            }, 500);
+
+        } catch (error) {
+            const errorMsg = error.body && error.body.message ? error.body.message : error.message;
+            this.showToast('Save Error', errorMsg, 'error');
+            this.isLoading = false;
+        }
+    }
+
+    handleCancel() {
+        this.dispatchEvent(new CloseActionScreenEvent());
+    }
+
+    showToast(title, message, variant) {
+        this.dispatchEvent(new ShowToastEvent({ title, message, variant }));
+    }
+}
