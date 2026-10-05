@@ -1,0 +1,647 @@
+<template>
+    <lightning-card>
+        <div class="slds-text-heading_medium slds-text-align_center slds-p-top_medium">
+            Add Deal Products
+        </div>
+
+        <!-- Top Section: Data Entry Form -->
+        <div class="slds-p-around_medium slds-border_bottom slds-theme_default">
+            <lightning-layout multiple-rows="true">
+                <lightning-layout-item size="12" medium-device-size="4" class="slds-p-horizontal_x-small slds-m-bottom_small">
+                    <lightning-record-picker
+                        object-api-name="Product2"
+                        label="Opportunity Product"
+                        value={selectedProductId}
+                        filter={productFilter}
+                        onchange={handleProductChange}
+                        placeholder="Select Product"
+                        disabled={isProductLookupDisabled}
+                        required>
+                    </lightning-record-picker>
+                </lightning-layout-item>
+
+                <lightning-layout-item size="12" medium-device-size="4" class="slds-p-horizontal_x-small slds-m-bottom_small">
+                    <lightning-input
+                        type="number"
+                        label="Quantity"
+                        value={entryVolume}
+                        onchange={handleVolumeChange}
+                        min="0.01"
+                        step="0.01"
+                        disabled={isProductNotSelected}
+                        required>
+                    </lightning-input>
+                    <template if:true={selectedProductId}>
+                        <div class="slds-form-element__help slds-text-color_success">
+                            Max: {currentMaxVolume}
+                        </div>
+                    </template>
+                </lightning-layout-item>
+
+                <lightning-layout-item size="12" medium-device-size="4" class="slds-p-horizontal_x-small slds-m-bottom_small">
+                    <lightning-input
+                        type="number"
+                        label="Discount %"
+                        value={entryDiscount}
+                        onchange={handleDiscountChange}
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        disabled={isProductNotSelected}
+                        required>
+                    </lightning-input>
+                </lightning-layout-item>
+
+                <lightning-layout-item size="12" medium-device-size="4" class="slds-p-horizontal_x-small slds-m-bottom_small">
+                    <lightning-input
+                        type="number"
+                        label="ATR Discount (Rs/L)"
+                        value={entryAtrDiscount}
+                        data-field="entryAtrDiscount"
+                        onchange={handleAdditionalDiscountChange}
+                        min="0"
+                        step="0.01"
+                        formatter="currency"
+                        disabled={isProductNotSelected}>
+                    </lightning-input>
+                </lightning-layout-item>
+
+                <lightning-layout-item size="12" medium-device-size="4" class="slds-p-horizontal_x-small slds-m-bottom_small">
+                    <lightning-input
+                        type="number"
+                        label="Season Scheme/Club Discount (Rs/L)"
+                        value={entrySeasonSchemeClubDiscount}
+                        data-field="entrySeasonSchemeClubDiscount"
+                        onchange={handleAdditionalDiscountChange}
+                        min="0"
+                        step="0.01"
+                        formatter="currency"
+                        disabled={isProductNotSelected}>
+                    </lightning-input>
+                </lightning-layout-item>
+
+                <lightning-layout-item size="12" medium-device-size="4" class="slds-p-horizontal_x-small slds-m-bottom_small">
+                    <lightning-input
+                        type="number"
+                        label="Special Tie-up Discount (Rs/L)"
+                        value={entrySpecialTieupDiscount}
+                        data-field="entrySpecialTieupDiscount"
+                        onchange={handleAdditionalDiscountChange}
+                        min="0"
+                        step="0.01"
+                        formatter="currency"
+                        disabled={isProductNotSelected}>
+                    </lightning-input>
+                </lightning-layout-item>
+
+                <lightning-layout-item size="12" medium-device-size="4" class="slds-p-horizontal_x-small slds-m-bottom_small">
+                    <lightning-input
+                        type="number"
+                        label="Others Discount (Rs/L)"
+                        value={entryOthersDiscount}
+                        data-field="entryOthersDiscount"
+                        onchange={handleAdditionalDiscountChange}
+                        min="0"
+                        step="0.01"
+                        formatter="currency"
+                        disabled={isProductNotSelected}>
+                    </lightning-input>
+                </lightning-layout-item>
+
+                <lightning-layout-item size="12" medium-device-size="4" class="slds-p-horizontal_x-small slds-m-bottom_small">
+                    <lightning-input
+                        type="number"
+                        label="DPL"
+                        value={entryDpl}
+                        formatter="currency"
+                        disabled>
+                    </lightning-input>
+                </lightning-layout-item>
+
+                <lightning-layout-item size="12" medium-device-size="4" class="slds-p-horizontal_x-small slds-m-bottom_small">
+                    <lightning-input
+                        type="number"
+                        label="Sales Price"
+                        value={entryCogs}
+                        formatter="currency"
+                        disabled>
+                    </lightning-input>
+                </lightning-layout-item>
+
+                <lightning-layout-item size="12" class="slds-m-top_small slds-text-align_right">
+                    <div class="slds-text-title_bold slds-float_left slds-p-top_x-small">
+                        <span>Total amount:</span>
+                        <lightning-formatted-number value={entryTotal} format-style="currency"></lightning-formatted-number>
+                    </div>
+                    <lightning-button label={addButtonLabel} variant="brand" onclick={handleAddProduct} disabled={isProductNotSelected}></lightning-button>
+                </lightning-layout-item>
+            </lightning-layout>
+        </div>
+
+        <!-- Bottom Section: Draft / Existing Items -->
+        <div class="slds-p-around_medium slds-theme_shade">
+            <div class="slds-text-heading_small slds-m-bottom_medium slds-text-title_bold">
+                Line Items ({draftItems.length})
+            </div>
+
+            <template if:true={draftItems.length}>
+                <lightning-layout multiple-rows="true">
+                    <template for:each={draftItems} for:item="item" for:index="index">
+                        <lightning-layout-item size="12" key={item.uuid} class="slds-m-bottom_small">
+                            <div class="slds-box slds-theme_default">
+                                <div class="line-item-row">
+                                    <div class="line-item-product slds-text-title_bold">{item.productName}</div>
+                                    <div class="line-item-field">
+                                        <span class="line-item-label">Volume</span>
+                                        <span class="line-item-value">{item.volume}</span>
+                                    </div>
+                                    <div class="line-item-field">
+                                        <span class="line-item-label">Total Discount in INR</span>
+                                        <lightning-formatted-number class="line-item-value" value={item.totalCalculatedDiscountAmountINR} format-style="currency"></lightning-formatted-number>
+                                    </div>
+                                    <div class="line-item-field">
+                                        <span class="line-item-label">Discount %</span>
+                                        <span class="line-item-value">{item.discount}</span>
+                                    </div>
+                                    <div class="line-item-field">
+                                        <span class="line-item-label">DPL</span>
+                                        <lightning-formatted-number class="line-item-value" value={item.dpl} format-style="currency"></lightning-formatted-number>
+                                    </div>
+                                    <div class="line-item-field">
+                                        <span class="line-item-label">Sales Price</span>
+                                        <lightning-formatted-number class="line-item-value" value={item.cogs} format-style="currency"></lightning-formatted-number>
+                                    </div>
+                                    <div class="line-item-actions">
+                                        <template if:true={item.isEditable}>
+                                            <lightning-button-icon icon-name="utility:edit" variant="border-filled" alternative-text="Edit" data-index={index} onclick={handleEditDraft}></lightning-button-icon>
+                                            <lightning-button-icon icon-name="utility:delete" variant="border-filled" alternative-text="Delete" data-index={index} onclick={handleDeleteDraft} class="slds-m-left_x-small"></lightning-button-icon>
+                                        </template>
+                                        <template if:true={item.isApproved}>
+                                            <lightning-badge label="Approved" class="slds-theme_success"></lightning-badge>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+                        </lightning-layout-item>
+                    </template>
+                </lightning-layout>
+            </template>
+
+            <template if:false={draftItems.length}>
+                <div class="slds-text-align_center slds-text-color_weak slds-p-around_medium">
+                    No products added yet. Select products from the Opportunity above.
+                </div>
+            </template>
+        </div>
+
+        <div slot="footer">
+            <lightning-button label="Cancel" onclick={handleCancel} class="slds-m-right_small"></lightning-button>
+            <lightning-button label="Save Deal Records" variant="brand" onclick={handleSaveAll} disabled={isSaveDisabled}></lightning-button>
+        </div>
+
+        <template if:true={isLoading}>
+            <lightning-spinner alternative-text="Loading" size="medium"></lightning-spinner>
+        </template>
+    </lightning-card>
+</template>
+
+
+
+
+
+
+
+
+
+
+
+______________
+
+
+
+
+
+
+
+
+
+
+
+
+
+import { LightningElement, api, track } from 'lwc';
+import { ShowToastEvent } from 'lightning/platformShowToastEvent';
+import { CloseActionScreenEvent } from 'lightning/actions';
+import { RefreshEvent } from 'lightning/refresh';
+import { notifyRecordUpdateAvailable } from 'lightning/uiRecordApi';
+
+import getOpportunityProducts from '@salesforce/apex/jswDCLISelectionController.getOpportunityProducts';
+import getExistingLineItems from '@salesforce/apex/jswDCLISelectionController.getExistingLineItems';
+import saveDealLineItems from '@salesforce/apex/jswDCLISelectionController.saveDealLineItems';
+
+const calculateTotalDiscountInr = item => [
+    item.atrDiscount,
+    item.seasonSchemeClubDiscount,
+    item.specialTieupDiscount,
+    item.othersDiscount
+].reduce((total, discount) => total + (parseFloat(discount) || 0), 0);
+
+export default class jswDealCalculatorAddProductsAction extends LightningElement {
+
+    _recordId;
+    @api
+    set recordId(value) {
+        this._recordId = value;
+        if (value) {
+            this.initializeData();
+        }
+    }
+    get recordId() {
+        return this._recordId;
+    }
+
+    isLoading = false;
+    availableProducts = [];
+
+    // Top Section State
+    @track selectedProductId = '';
+    @track currentProductName = '';
+    @track currentMaxVolume = 0;
+    @track entryVolume = null;
+    @track entryDiscount = 0;
+    @track entryAtrDiscount = 0;
+    @track entrySeasonSchemeClubDiscount = 0;
+    @track entrySpecialTieupDiscount = 0;
+    @track entryOthersDiscount = 0;
+    @track entryDpl = 0;
+    @track currentLineItemId = null;
+
+    // Draft/Existing Items State
+    @track draftItems = [];
+    itemsToDelete = [];
+
+    async initializeData() {
+        if (this.isLoading) return;
+        this.isLoading = true;
+        try {
+            this.availableProducts = await getOpportunityProducts({ opportunityId: this.recordId });
+            const existingData = await getExistingLineItems({ opportunityId: this.recordId });
+
+            this.draftItems = existingData.map(item => {
+                const oli = this.availableProducts.find(p => p.productId === item.productId);
+
+                let maxAllowed = item.volume;
+                if (oli) {
+                    maxAllowed = (oli.totalVolume - oli.consumedVolume) + item.volume;
+                }
+
+                return {
+                    uuid: item.id,
+                    id: item.id,
+                    productId: item.productId,
+                    productName: item.productName,
+                    volume: item.volume,
+                    discount: item.discount,
+                    atrDiscount: item.atrDiscount || 0,
+                    seasonSchemeClubDiscount: item.seasonSchemeClubDiscount || 0,
+                    specialTieupDiscount: item.specialTieupDiscount || 0,
+                    othersDiscount: item.othersDiscount || 0,
+                    totalCalculatedDiscountAmountINR: calculateTotalDiscountInr(item),
+                    dpl: item.dpl,
+                    cogs: item.cogs,
+                    status: item.status,
+                    isApproved: item.status === 'Approved',
+                    isEditable: item.status !== 'Approved',
+                    maxVolume: maxAllowed
+                };
+            });
+        } catch (error) {
+            const errorMsg = error.body && error.body.message ? error.body.message : error.message;
+            this.showToast('Load Error', errorMsg, 'error');
+        } finally {
+            this.isLoading = false;
+        }
+    }
+
+    // --- Getters ---
+    get availableProductIds() {
+        const selectedIds = this.draftItems.map(item => item.productId);
+        return this.availableProducts
+            .filter(prod => !selectedIds.includes(prod.productId) || prod.productId === this.selectedProductId)
+            .map(prod => prod.productId);
+    }
+
+    get productFilter() {
+        const productIds = this.availableProductIds;
+        if (!productIds.length) return undefined;
+
+        return {
+            criteria: [{
+                fieldPath: 'Id',
+                operator: 'in',
+                value: productIds
+            }]
+        };
+    }
+
+    get isProductLookupDisabled() {
+        return this.availableProductIds.length === 0;
+    }
+
+    get isProductNotSelected() {
+        return !this.selectedProductId;
+    }
+
+    get isSaveDisabled() {
+        return this.draftItems.length === 0 && this.itemsToDelete.length === 0;
+    }
+
+    get entryCogs() {
+        if (!this.entryDpl) return 0;
+        const discountVal = this.entryDiscount ? parseFloat(this.entryDiscount) : 0;
+        const perLiterDiscounts = [
+            this.entryAtrDiscount,
+            this.entrySeasonSchemeClubDiscount,
+            this.entrySpecialTieupDiscount,
+            this.entryOthersDiscount
+        ].reduce((total, value) => total + (parseFloat(value) || 0), 0);
+        const cogs = this.entryDpl * (1 - (discountVal / 100)) - perLiterDiscounts;
+        return parseFloat(cogs.toFixed(2));
+    }
+
+    get entryTotal() {
+        const vol = this.entryVolume ? parseFloat(this.entryVolume) : 0;
+        return parseFloat((vol * this.entryCogs).toFixed(2));
+    }
+
+    get addButtonLabel() {
+        return this.currentLineItemId ? 'Update Draft' : 'Add to Draft';
+    }
+
+    // --- Event Handlers (Top Section) ---
+    handleProductChange(event) {
+        this.selectedProductId = event.detail.recordId;
+        const selectedOLI = this.availableProducts.find(p => p.productId === this.selectedProductId);
+
+        if (selectedOLI) {
+            if (this.currentProductName !== selectedOLI.productName) {
+                this.currentLineItemId = null;
+            }
+            this.currentProductName = selectedOLI.productName;
+            this.entryDpl = selectedOLI.dpl;
+            this.entryVolume = null;
+            this.entryDiscount = 0;
+            this.entryAtrDiscount = 0;
+            this.entrySeasonSchemeClubDiscount = 0;
+            this.entrySpecialTieupDiscount = 0;
+            this.entryOthersDiscount = 0;
+
+            this.currentMaxVolume = selectedOLI.totalVolume - selectedOLI.consumedVolume;
+        }
+    }
+
+    handleVolumeChange(event) {
+        const enteredVolume = parseFloat(event.target.value);
+        if (!Number.isFinite(enteredVolume)) {
+            this.entryVolume = event.target.value;
+            return;
+        }
+
+        const clampedVolume = Math.min(enteredVolume, this.currentMaxVolume);
+        this.entryVolume = clampedVolume;
+        if (enteredVolume > this.currentMaxVolume) {
+            event.target.value = clampedVolume;
+        }
+    }
+
+    handleDiscountChange(event) {
+        this.entryDiscount = event.target.value;
+    }
+
+    handleAdditionalDiscountChange(event) {
+        this[event.target.dataset.field] = event.target.value;
+    }
+
+    // --- Drafting Logic ---
+    handleAddProduct() {
+        const enteredVolume = parseFloat(this.entryVolume);
+        if (!Number.isFinite(enteredVolume) || enteredVolume <= 0) {
+            this.showToast('Validation Error', 'Volume must be greater than 0.', 'warning');
+            return;
+        }
+        const volume = Math.min(enteredVolume, this.currentMaxVolume);
+        if (volume <= 0) {
+            this.showToast('Validation Error', 'No remaining quantity is available for this product.', 'warning');
+            return;
+        }
+
+        const newItem = {
+            uuid: this.currentLineItemId ? this.currentLineItemId : Date.now().toString(),
+            id: this.currentLineItemId,
+            productId: this.selectedProductId,
+            productName: this.currentProductName,
+            volume,
+            discount: parseFloat(this.entryDiscount) || 0,
+            atrDiscount: parseFloat(this.entryAtrDiscount) || 0,
+            seasonSchemeClubDiscount: parseFloat(this.entrySeasonSchemeClubDiscount) || 0,
+            specialTieupDiscount: parseFloat(this.entrySpecialTieupDiscount) || 0,
+            othersDiscount: parseFloat(this.entryOthersDiscount) || 0,
+            totalCalculatedDiscountAmountINR: calculateTotalDiscountInr({
+                atrDiscount: this.entryAtrDiscount,
+                seasonSchemeClubDiscount: this.entrySeasonSchemeClubDiscount,
+                specialTieupDiscount: this.entrySpecialTieupDiscount,
+                othersDiscount: this.entryOthersDiscount
+            }),
+            dpl: this.entryDpl,
+            cogs: this.entryCogs,
+            status: 'Draft',
+            isApproved: false,
+            isEditable: true,
+            maxVolume: this.currentMaxVolume
+        };
+
+        this.draftItems = [...this.draftItems, newItem];
+        this.resetTopForm();
+    }
+
+    resetTopForm() {
+        this.selectedProductId = '';
+        this.currentProductName = '';
+        this.currentMaxVolume = 0;
+        this.entryVolume = null;
+        this.entryDiscount = 0;
+        this.entryAtrDiscount = 0;
+        this.entrySeasonSchemeClubDiscount = 0;
+        this.entrySpecialTieupDiscount = 0;
+        this.entryOthersDiscount = 0;
+        this.entryDpl = 0;
+        this.currentLineItemId = null;
+    }
+
+    // --- Draft Table Interactions ---
+    handleEditDraft(event) {
+        const index = event.target.dataset.index;
+        const itemToEdit = this.draftItems[index];
+
+        this.selectedProductId = itemToEdit.productId;
+        this.currentProductName = itemToEdit.productName;
+        this.currentMaxVolume = itemToEdit.maxVolume;
+        this.entryVolume = itemToEdit.volume;
+        this.entryDiscount = itemToEdit.discount;
+        this.entryAtrDiscount = itemToEdit.atrDiscount;
+        this.entrySeasonSchemeClubDiscount = itemToEdit.seasonSchemeClubDiscount;
+        this.entrySpecialTieupDiscount = itemToEdit.specialTieupDiscount;
+        this.entryOthersDiscount = itemToEdit.othersDiscount;
+        this.entryDpl = itemToEdit.dpl;
+        this.currentLineItemId = itemToEdit.id;
+
+        this.draftItems.splice(index, 1);
+        this.draftItems = [...this.draftItems];
+    }
+
+    handleDeleteDraft(event) {
+        const index = event.target.dataset.index;
+        const itemToDelete = this.draftItems[index];
+
+        if (itemToDelete.id) {
+            this.itemsToDelete.push(itemToDelete.id);
+        }
+
+        this.draftItems.splice(index, 1);
+        this.draftItems = [...this.draftItems];
+    }
+
+    // --- Database Operations ---
+    async handleSaveAll() {
+        for (let item of this.draftItems) {
+            if (!item.volume || item.volume <= 0 || item.volume > item.maxVolume) {
+                this.showToast('Error', `Invalid volume for ${item.productName}. Please fix before saving.`, 'error');
+                return;
+            }
+        }
+
+        this.isLoading = true;
+        try {
+            await saveDealLineItems({
+                opportunityId: this.recordId,
+                itemsToSave: this.draftItems,
+                itemsToDelete: this.itemsToDelete
+            });
+
+            this.showToast('Success', 'Deal Calculator Line Items saved successfully!', 'success');
+
+            // 1. Invalidate Lightning Data Service cache for the parent record
+            await notifyRecordUpdateAvailable([{ recordId: this.recordId }]);
+
+            // 2. Dispatch LWC Refresh Event
+            this.dispatchEvent(new RefreshEvent());
+
+            // Close the quick action first, then hard-reload the record page.
+            this.dispatchEvent(new CloseActionScreenEvent());
+            setTimeout(() => window.location.reload(), 1000);
+
+        } catch (error) {
+            const errorMsg = error.body && error.body.message ? error.body.message : error.message;
+            this.showToast('Save Error', errorMsg, 'error');
+            this.isLoading = false;
+        }
+    }
+
+    handleCancel() {
+        this.dispatchEvent(new CloseActionScreenEvent());
+    }
+
+    showToast(title, message, variant) {
+        this.dispatchEvent(new ShowToastEvent({ title, message, variant }));
+    }
+}
+
+
+
+
+
+
+
+___________________
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+.rowBox {
+    border: 1px solid #d8dde6;
+    border-radius: 0.25rem;
+    background: #ffffff;
+}
+
+.line-item-row {
+    display: grid;
+    width: 100%;
+    box-sizing: border-box;
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.7fr) minmax(0, 1.4fr) minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.3fr) 72px;
+    align-items: center;
+    gap: 8px;
+}
+
+.line-item-field {
+    min-width: 0;
+}
+
+.line-item-label {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--lwc-colorTextLabel, #444);
+    font-size: 0.75rem;
+}
+
+.line-item-value {
+    display: block;
+    overflow-wrap: anywhere;
+}
+
+.line-item-product {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.line-item-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    white-space: nowrap;
+}
+
+@media (max-width: 860px) {
+    .line-item-row {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .line-item-product {
+        grid-column: span 2;
+    }
+
+    .line-item-actions {
+        justify-content: flex-start;
+    }
+}
+
+@media (max-width: 560px) {
+    .line-item-row {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .line-item-product,
+    .line-item-actions {
+        grid-column: 1 / -1;
+    }
+}
