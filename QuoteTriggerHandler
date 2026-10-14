@@ -1,0 +1,53 @@
+public without sharing class QuoteTriggerHandler {
+    public static BypassSettings bypassSetting;
+
+    public static Boolean isMethodDisabled(String methodName) {
+        return bypassSetting != null
+            && bypassSetting.disabledMethods != null
+            && bypassSetting.disabledMethods.contains(methodName);
+    }
+
+    public static Boolean isEventDisabled(String eventName) {
+        return bypassSetting != null
+            && bypassSetting.disabledEvents != null
+            && bypassSetting.disabledEvents.contains(eventName);
+    }
+
+    public static void handle(
+        List<Quote> newList,
+        Map<Id, Quote> oldMap,
+        System.TriggerOperation operation,
+        Boolean isBefore,
+        Boolean isAfter
+    ) {
+        try {
+            Logger.setScenario('handle QuoteTrigger');
+            bypassSetting = BypassSettings.getApplicableBypassSettingForTrigger('QuoteTrigger');
+
+            if (bypassSetting != null
+                && (!bypassSetting.isTriggerEnabled || isEventDisabled(String.valueOf(operation)))) {
+                return;
+            }
+
+            if (operation == System.TriggerOperation.BEFORE_INSERT) {
+                beforeInsert(newList);
+            } else if (operation == System.TriggerOperation.AFTER_INSERT) {
+                afterInsert(newList);
+            }
+        } finally {
+            Logger.saveLog();
+        }
+    }
+
+    private static void beforeInsert(List<Quote> newList) {
+        if (!isMethodDisabled('validateAndPrepareInsert')) {
+            QuoteTriggerHelperPJT.validateAndPrepareInsert(newList);
+        }
+    }
+
+    private static void afterInsert(List<Quote> newList) {
+        if (!isMethodDisabled('deactivateExistingQuotes')) {
+            QuoteTriggerHelperPJT.deactivateExistingQuotes(newList);
+        }
+    }
+}
