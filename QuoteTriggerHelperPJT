@@ -1,0 +1,143 @@
+public without sharing class QuoteTriggerHelperPJT {
+    private static final String MISSING_OPPORTUNITY_MESSAGE =
+        'A Quote must be associated with an Opportunity.';
+    private static final String INVALID_APPROVAL_MESSAGE =
+        'A Quote can only be created when the Opportunity has an ApprovedDealCalculators__c value greater than zero.';
+    private static final String EXISTING_QUOTE_MESSAGE =
+        'An existing active Quote has reached the approved deal calculator limit. Use the existing Quote instead of creating another one.';
+
+    public static void validateAndPrepareInsert(List<Quote> newQuotes) {
+        Set<Id> opportunityIds = new Set<Id>();
+        for (Quote quoteRecord : newQuotes) {
+            if (quoteRecord.OpportunityId != null) {
+                opportunityIds.add(quoteRecord.OpportunityId);
+            }
+        }
+
+        Map<Id, Opportunity> opportunitiesById = new Map<Id, Opportunity>();
+        if (!opportunityIds.isEmpty()) {
+            opportunitiesById = new Map<Id, Opportunity>([
+                SELECT Id, ApprovedDealCalculators__c
+                FROM Opportunity
+                WHERE Id IN :opportunityIds
+            ]);
+        }
+
+        Map<Id, List<Quote>> activeQuotesByOpportunity = getActiveQuotesByOpportunity(opportunityIds);
+        Map<Id, List<Quote>> validQuotesByOpportunity = new Map<Id, List<Quote>>();
+
+        for (Quote quoteRecord : newQuotes) {
+            if (quoteRecord.OpportunityId == null) {
+                quoteRecord.addError(MISSING_OPPORTUNITY_MESSAGE);
+                continue;
+            }
+
+            Opportunity opportunityRecord = opportunitiesById.get(quoteRecord.OpportunityId);
+            Decimal approvedDealCalculators = opportunityRecord == null
+                ? null
+                : opportunityRecord.ApprovedDealCalculators__c;
+            if (approvedDealCalculators == null || approvedDealCalculators <= 0) {
+                quoteRecord.addError(INVALID_APPROVAL_MESSAGE);
+                continue;
+            }
+
+            Boolean hasBlockingActiveQuote = false;
+            if (activeQuotesByOpportunity.containsKey(quoteRecord.OpportunityId)) {
+                for (Quote activeQuote : activeQuotesByOpportunity.get(quoteRecord.OpportunityId)) {
+                    Decimal existingVersion = activeQuote.VersionNumber__c == null
+                        ? 0
+                        : activeQuote.VersionNumber__c;
+                    if (existingVersion >= approvedDealCalculators) {
+                        hasBlockingActiveQuote = true;
+                        break;
+                    }
+                }
+            }
+
+            if (hasBlockingActiveQuote) {
+                quoteRecord.addError(EXISTING_QUOTE_MESSAGE);
+                continue;
+            }
+
+            quoteRecord.VersionNumber__c = approvedDealCalculators;
+            quoteRecord.IsActive__c = true;
+
+            if (!validQuotesByOpportunity.containsKey(quoteRecord.OpportunityId)) {
+                validQuotesByOpportunity.put(quoteRecord.OpportunityId, new List<Quote>());
+            }
+            validQuotesByOpportunity.get(quoteRecord.OpportunityId).add(quoteRecord);
+        }
+
+        for (List<Quote> quotesForOpportunity : validQuotesByOpportunity.values()) {
+            Quote activeWinner = selectActiveWinner(quotesForOpportunity);
+            for (Quote quoteRecord : quotesForOpportunity) {
+                quoteRecord.IsActive__c = quoteRecord == activeWinner;
+            }
+        }
+    }
+
+    public static void deactivateExistingQuotes(List<Quote> insertedQuotes) {
+        Set<Id> opportunityIds = new Set<Id>();
+        Set<Id> insertedQuoteIds = new Set<Id>();
+        for (Quote quoteRecord : insertedQuotes) {
+            insertedQuoteIds.add(quoteRecord.Id);
+            if (quoteRecord.OpportunityId != null) {
+                opportunityIds.add(quoteRecord.OpportunityId);
+            }
+        }
+
+        if (opportunityIds.isEmpty()) {
+            return;
+        }
+
+        List<Quote> quotesToDeactivate = [
+            SELECT Id, IsActive__c
+            FROM Quote
+            WHERE OpportunityId IN :opportunityIds
+                AND IsActive__c = true
+                AND Id NOT IN :insertedQuoteIds
+        ];
+
+        for (Quote quoteRecord : quotesToDeactivate) {
+            quoteRecord.IsActive__c = false;
+        }
+        if (!quotesToDeactivate.isEmpty()) {
+            update quotesToDeactivate;
+        }
+    }
+
+    private static Map<Id, List<Quote>> getActiveQuotesByOpportunity(Set<Id> opportunityIds) {
+        Map<Id, List<Quote>> activeQuotesByOpportunity = new Map<Id, List<Quote>>();
+        if (opportunityIds.isEmpty()) {
+            return activeQuotesByOpportunity;
+        }
+
+        for (Quote quoteRecord : [
+            SELECT Id, OpportunityId, VersionNumber__c
+            FROM Quote
+            WHERE OpportunityId IN :opportunityIds
+                AND IsActive__c = true
+        ]) {
+            if (!activeQuotesByOpportunity.containsKey(quoteRecord.OpportunityId)) {
+                activeQuotesByOpportunity.put(quoteRecord.OpportunityId, new List<Quote>());
+            }
+            activeQuotesByOpportunity.get(quoteRecord.OpportunityId).add(quoteRecord);
+        }
+        return activeQuotesByOpportunity;
+    }
+
+    private static Quote selectActiveWinner(List<Quote> quotesForOpportunity) {
+        Quote winner;
+        Decimal winnerVersion = null;
+        for (Quote quoteRecord : quotesForOpportunity) {
+            Decimal version = quoteRecord.VersionNumber__c == null
+                ? 0
+                : quoteRecord.VersionNumber__c;
+            if (winner == null || version > winnerVersion) {
+                winner = quoteRecord;
+                winnerVersion = version;
+            }
+        }
+        return winner;
+    }
+}
