@@ -1,0 +1,31 @@
+/**
+ * Routes QuoteLineItem trigger events to the corresponding business logic.
+ */
+public without sharing class QuoteLineItemTriggerHandler {
+    private static final String TRIGGER_NAME = 'QuoteLineItemTrigger';
+    private static final String BEFORE_INSERT_EVENT = 'BEFORE_INSERT';
+
+    public static BypassSettings bypassSetting;
+
+    public static void handle(
+        List<QuoteLineItem> newList,
+        System.TriggerOperation operation
+    ) {
+        bypassSetting = BypassSettings.getApplicableBypassSettingForTrigger(TRIGGER_NAME);
+        if (bypassSetting != null && (!bypassSetting.isTriggerEnabled || isEventDisabled(String.valueOf(operation)))) {
+            return;
+        }
+
+        if (operation == System.TriggerOperation.BEFORE_INSERT) {
+            beforeInsert(newList);
+        }
+    }
+
+    private static Boolean isEventDisabled(String eventName) {
+        return bypassSetting != null &&bypassSetting.disabledEvents != null && bypassSetting.disabledEvents.contains(eventName);
+    }
+
+    private static void beforeInsert(List<QuoteLineItem> newList) {
+        QuoteLineItemTriggerHelperPJT.populateFromApprovedDealCalculators(newList);
+    }
+}
