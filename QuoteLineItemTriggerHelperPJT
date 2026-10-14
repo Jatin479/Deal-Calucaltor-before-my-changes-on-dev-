@@ -1,0 +1,145 @@
+/**
+ * Populates new Quote Line Items from approved Deal Calculator Opportunity Line Items.
+ */
+public without sharing class QuoteLineItemTriggerHelperPJT {
+    private static final String APPROVED_STATUS = 'Approved';
+    private static final String DEAL_CALCULATOR_RECORD_TYPE = 'SFA_PJT_ProjectSiteDealCalculator';
+
+    public static void populateFromApprovedDealCalculators(List<QuoteLineItem> quoteLineItems) {
+        if (quoteLineItems == null || quoteLineItems.isEmpty()) {
+            return;
+        }
+
+        Set<Id> quoteIds = new Set<Id>();
+        Set<Id> pricebookEntryIds = new Set<Id>();
+        for (QuoteLineItem quoteLineItem : quoteLineItems) {
+            if (quoteLineItem.QuoteId != null) {
+                quoteIds.add(quoteLineItem.QuoteId);
+            }
+            if (quoteLineItem.PricebookEntryId != null) {
+                pricebookEntryIds.add(quoteLineItem.PricebookEntryId);
+            }
+        }
+
+        Map<Id, Id> quoteToOpportunityId = new Map<Id, Id>();
+        if (!quoteIds.isEmpty()) {
+            for (Quote quoteRecord : [
+                SELECT Id, OpportunityId
+                FROM Quote
+                WHERE Id IN :quoteIds
+            ]) {
+                quoteToOpportunityId.put(quoteRecord.Id, quoteRecord.OpportunityId);
+            }
+        }
+
+        Map<Id, Id> pricebookEntryToProductId = new Map<Id, Id>();
+        if (!pricebookEntryIds.isEmpty()) {
+            for (PricebookEntry entry : [
+                SELECT Id, Product2Id
+                FROM PricebookEntry
+                WHERE Id IN :pricebookEntryIds
+            ]) {
+                pricebookEntryToProductId.put(entry.Id, entry.Product2Id);
+            }
+        }
+
+        Set<Id> parentOpportunityIds = new Set<Id>();
+        Set<Id> productIds = new Set<Id>();
+        for (Id opportunityId : quoteToOpportunityId.values()) {
+            if (opportunityId != null) {
+                parentOpportunityIds.add(opportunityId);
+            }
+        }
+        for (Id productId : pricebookEntryToProductId.values()) {
+            if (productId != null) {
+                productIds.add(productId);
+            }
+        }
+
+        Map<Id, Id> childToParentOpportunityId = new Map<Id, Id>();
+        if (!parentOpportunityIds.isEmpty() && !productIds.isEmpty()) {
+            for (Opportunity childOpportunity : [
+                SELECT Id, ParentProject__c
+                FROM Opportunity
+                WHERE ParentProject__c IN :parentOpportunityIds
+                    AND ApprovalStatus__c = :APPROVED_STATUS
+                    AND RecordType.DeveloperName = :DEAL_CALCULATOR_RECORD_TYPE
+            ]) {
+                childToParentOpportunityId.put(childOpportunity.Id, childOpportunity.ParentProject__c);
+            }
+        }
+
+        Map<Id, Map<Id, Decimal>> quantityByParentAndProduct = new Map<Id, Map<Id, Decimal>>();
+        Map<Id, Map<Id, Decimal>> coverageByParentAndProduct = new Map<Id, Map<Id, Decimal>>();
+        Map<Id, Set<Id>> coverageConflictsByParentAndProduct = new Map<Id, Set<Id>>();
+        if (!childToParentOpportunityId.isEmpty() && !productIds.isEmpty()) {
+            Set<Id> childOpportunityIds = childToParentOpportunityId.keySet();
+            for (AggregateResult aggregateRow : [
+                SELECT OpportunityId, Product2Id, SUM(Quantity) totalQuantity,
+                    MIN(CoverageL__c) minCoverage, MAX(CoverageL__c) maxCoverage
+                FROM OpportunityLineItem
+                WHERE OpportunityId IN :childOpportunityIds
+                    AND Product2Id IN :productIds
+                GROUP BY OpportunityId, Product2Id
+            ]) {
+                Id parentOpportunityId = childToParentOpportunityId.get((Id) aggregateRow.get('OpportunityId'));
+                Id productId = (Id) aggregateRow.get('Product2Id');
+                Decimal totalQuantity = (Decimal) aggregateRow.get('totalQuantity');
+                Decimal minCoverage = (Decimal) aggregateRow.get('minCoverage');
+                Decimal maxCoverage = (Decimal) aggregateRow.get('maxCoverage');
+                if (parentOpportunityId == null || productId == null || totalQuantity == null) {
+                    continue;
+                }
+
+                if (!quantityByParentAndProduct.containsKey(parentOpportunityId)) {
+                    quantityByParentAndProduct.put(parentOpportunityId, new Map<Id, Decimal>());
+                }
+                quantityByParentAndProduct.get(parentOpportunityId).put(
+                    productId,
+                    (quantityByParentAndProduct.get(parentOpportunityId).containsKey(productId)
+                        ? quantityByParentAndProduct.get(parentOpportunityId).get(productId)
+                        : 0) + totalQuantity
+                );
+
+                if (minCoverage != null) {
+                    if (!coverageByParentAndProduct.containsKey(parentOpportunityId)) {
+                        coverageByParentAndProduct.put(parentOpportunityId, new Map<Id, Decimal>());
+                    }
+                    Map<Id, Decimal> coverageByProduct = coverageByParentAndProduct.get(parentOpportunityId);
+                    if (coverageByProduct.containsKey(productId) && coverageByProduct.get(productId) != minCoverage) {
+                        if (!coverageConflictsByParentAndProduct.containsKey(parentOpportunityId)) {
+                            coverageConflictsByParentAndProduct.put(parentOpportunityId, new Set<Id>());
+                        }
+                        coverageConflictsByParentAndProduct.get(parentOpportunityId).add(productId);
+                    } else if (minCoverage != maxCoverage) {
+                        if (!coverageConflictsByParentAndProduct.containsKey(parentOpportunityId)) {
+                            coverageConflictsByParentAndProduct.put(parentOpportunityId, new Set<Id>());
+                        }
+                        coverageConflictsByParentAndProduct.get(parentOpportunityId).add(productId);
+                    } else if (!coverageByProduct.containsKey(productId)) {
+                        coverageByProduct.put(productId, minCoverage);
+                    }
+                }
+            }
+        }
+
+        for (QuoteLineItem quoteLineItem : quoteLineItems) {
+            Id opportunityId = quoteToOpportunityId.get(quoteLineItem.QuoteId);
+            Id productId = pricebookEntryToProductId.get(quoteLineItem.PricebookEntryId);
+            Map<Id, Decimal> quantityByProduct = quantityByParentAndProduct.get(opportunityId);
+
+            if (productId != null && quantityByProduct != null && quantityByProduct.containsKey(productId)) {
+                quoteLineItem.Quantity = quantityByProduct.get(productId);
+                Set<Id> conflictingProducts = coverageConflictsByParentAndProduct.get(opportunityId);
+                if (conflictingProducts != null && conflictingProducts.contains(productId)) {
+                    quoteLineItem.CoverageL__c = null;
+                } else {
+                    Map<Id, Decimal> coverageByProduct = coverageByParentAndProduct.get(opportunityId);
+                    quoteLineItem.CoverageL__c = coverageByProduct == null ? null : coverageByProduct.get(productId);
+                }
+            } else {
+                quoteLineItem.addError('This product is not available in an approved Deal Calculator Opportunity.');
+            }
+        }
+    }
+}
